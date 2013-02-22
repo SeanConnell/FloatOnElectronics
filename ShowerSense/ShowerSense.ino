@@ -3,6 +3,19 @@
     Purpose: Sense waterflow and alert a listener
 Application: Float on shower usage detector informing a node that signals the Helm node. Eventual use might be also automatically reading sensors in the tank.
      Author: Sean Connell
+     Design: A finite state machine which collects a data during a collection window, applies transforms to the data, then notifies any listeners with that data.
+     
+power on init-> DATA_GATHERING-----<timer overflow>----[-> DATA_TRANSFORM]----<transform completes>  
+                    ^                     |                                            |
+                    |             (!DATA_GATHERING?)                                   |
+                    |                     |                                            |
+                    |                 [-> RESET]                             [-> NOTIFY_LISTENER]
+                    |                                                                  |
+                    |                                                                  |  
+                    |---------------------------------[CLEAR_STATE <-]---------<notify completes>
+                    
+TODO: Add in timer stop/start and watchdog timer initialize/cleanup and use to reset
+     
 */
 
 #define IN_USE_FLOW_RATE 50
@@ -40,16 +53,17 @@ ISR(TIMER1_COMPA_vect){
     Might be a bad calc somewhere in the DATA_TRANSFORM step
     Try to restart and hope that it doesn't happen again */ 
     STATE = RESTART; 
-    DISABLE_INTERRUPTS;//We're going to muck around with state, don't want to get interrupted
+    DISABLE_INTERRUPTS;//We're going to bail out and restart. Don't need to worry about the world
   }
   else{
     STATE = DATA_TRANSFORM;
-    //TODO should also stop timer here for the best accuracy
+    //TODO should stop timer here 
     DISABLE_INTERRUPTS;//Don't want to collect any data while we copy some values
   }
 }
 
 void setup() {
+  //TODO Clear watchdog here
    Serial.begin(115200); //initialize uart
    pinMode(FLOW_SENSOR_PIN, INPUT); 
    digitalWrite(FLOW_SENSOR_PIN, HIGH);
@@ -74,8 +88,7 @@ void loop()
     //steps to transform it into output form
     case DATA_TRANSFORM:
       flow_rate = calculate_flow_rate(pulse_count);
-      STATE = DATA_GATHERING
-      ENABLE_INTERRUPTS;
+      STATE = NOTIFY_LISTENER;
       break;
       
     
@@ -86,11 +99,12 @@ void loop()
       STATE = CLEAR_STATE;
       break;
     
-    //reset everything 
+    //reset everything to be ready for the next cycle
     case CLEAR_STATE:
       flow_rate = 0;
       CLEAR_PENDING_INTERRUPTS;
       STATE = DATA_GATHERING;
+      //TODO start timer here again
       ENABLE_INTERRUPTS;
       break;
       
