@@ -25,6 +25,8 @@ TODO: Add in timer stop/start and watchdog timer initialize/cleanup and use to r
 #define CLEAR_PENDING_INTERRUPTS EIFR = 0
 #define ENABLE_INTERRUPTS sei()
 #define DISABLE_INTERRUPTS cli()
+#define STOP_TIMER TCCR1B &= 0B11111000 //Clear CS12,11,10 I think this is clearer than doing the shift over invert thing
+#define START_TIMER TCCR1B |= (1 << CS10) | (1 << CS12); //Set 1024 prescaler bits
 
 //States for the system
 #define INITIAL         B00000000
@@ -57,13 +59,13 @@ ISR(TIMER1_COMPA_vect){
   }
   else{
     STATE = DATA_TRANSFORM;
-    //TODO should stop timer here 
+    STOP_TIMER;
     DISABLE_INTERRUPTS;//Don't want to collect any data while we copy some values
   }
 }
 
 void setup() {
-  //TODO Clear watchdog here
+   clear_watchdog();
    Serial.begin(115200); //initialize uart
    pinMode(FLOW_SENSOR_PIN, INPUT); 
    digitalWrite(FLOW_SENSOR_PIN, HIGH);
@@ -78,6 +80,13 @@ void loop()
   /* State machine transitions and actions that 
   aren't time critical or are too heavy to do
   in interrupts are done here. */
+  //TODO look into: implement this as a fn pointer to STATE
+  //such that each state has a function that either
+  //returns itself or next state, then the main falls
+  //out into while(1){p_state = *p_state();} as per
+  //Ben's suggestion. Might require implementing
+  //some sort of struct to represent magic interrupt
+  //based variables
   switch(STATE){
     
     //Not concerned with DATA_GATHERING 
@@ -90,7 +99,6 @@ void loop()
       flow_rate = calculate_flow_rate(pulse_count);
       STATE = NOTIFY_LISTENER;
       break;
-      
     
     //Notify whatever is listening by whatever method
     case NOTIFY_LISTENER:
@@ -104,7 +112,7 @@ void loop()
       flow_rate = 0;
       CLEAR_PENDING_INTERRUPTS;
       STATE = DATA_GATHERING;
-      //TODO start timer here again
+      START_TIMER;
       ENABLE_INTERRUPTS;
       break;
       
@@ -114,7 +122,7 @@ void loop()
       Serial.println("|-------------------------------------RESETTING------------------------------------|"); 
       Serial.println("| ILLEGAL STATE: Did not return to DATA_GATHERING state before time window elapsed |"); 
       Serial.println("|-------------------------------------RESETTING------------------------------------|"); 
-      //reset here
+      reset();
       break;
   }
 }
@@ -131,7 +139,6 @@ void initialize_timer(){
   TCCR1B = 0;
   OCR1A = 46874; //compare mode with 3 second intervals at this clock rate of 16mhz
   TCCR1B |= (1 << WGM12); //CTC mode
-  TCCR1B |= (1 << CS10) | (1 << CS12); //Set 1024 prescaler bits
   TIMSK1 |= (1 << OCIE1A); //enable timer compare interrupt
 }
 
@@ -139,4 +146,12 @@ uint16_t calculate_flow_rate(uint16_t pulses){
     return (pulses/TIMER_PERIOD); 
 }
 
+void clear_watchdog(){
+    //TODO
+}
 
+void reset(){
+   initialize_watchdog();
+   //TODO
+   //set watchdog to explode here
+}
