@@ -16,13 +16,15 @@ power on init-> DATA_GATHERING-----<timer overflow>----[-> DATA_TRANSFORM]----<t
                     
 TODO: Add in watchdog timer initialize/cleanup and use to reset
 TODO: Put MCU to sleep while not gathering data via interrupts
-     
+TODO: Add reporting windows for each data type, not just global reports
+TODO: Add some sort of easy to use serialization format for output data, JSON, Pickle, etc come to mind
+
 */
 
 //User Settings
 #define FLOW_SENSOR_PIN 2
 //Be careful about setting this, it might overflow variables tracking various data if too long
-#define REPORT_INTERVAL_SECONDS 60
+#define REPORT_INTERVAL_SECONDS 5
 
 //Readability defines
 #define CLEAR_PENDING_INTERRUPTS EIFR = 0
@@ -38,7 +40,7 @@ TODO: Put MCU to sleep while not gathering data via interrupts
 #define NOTIFY_LISTENER B00000010
 #define DATA_GATHERING  B00000100
 #define CLEAR_STATE     B00001000
-#define RESTART  B10000000
+#define RESTART         B10000000
 
 //Volatile stateful variables
 volatile uint16_t  pulse_count;
