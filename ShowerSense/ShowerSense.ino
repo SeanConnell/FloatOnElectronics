@@ -117,9 +117,7 @@ void loop()
     
     //Notify whatever is listening by whatever method
     case NOTIFY_LISTENER:
-      Serial.print("Flow Rate:\t"); 
-      Serial.print(flow_rate);
-      Serial.println("\t[ml]");
+      serialize_as_json_report();
       STATE = CLEAR_STATE;
       break;
     
@@ -165,6 +163,18 @@ void initialize_timer(){
  is smart enough to know that though*/
 uint16_t calculate_flow_rate(uint16_t pulses){
     return ((pulses*9)>>2); 
+}
+
+void serialize_as_json_report(){
+  Serial.print("{");
+    Serial.print("\"report_version\":\"1\",");
+    Serial.print("\"collection_duration_seconds\":\""); Serial.print(REPORT_INTERVAL_SECONDS); Serial.print("\",");
+    Serial.print("\"data\": [");
+      Serial.print("{\"data_type\":\"water_flow\",");
+      Serial.print("\"units\":\"mL\",");
+      Serial.print("\"value\":"); Serial.print(flow_rate); Serial.print("}");
+    Serial.print("]");
+  Serial.println("}");
 }
 
 void clear_watchdog(){
