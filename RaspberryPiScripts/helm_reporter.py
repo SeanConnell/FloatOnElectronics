@@ -1,3 +1,8 @@
 #!/usr/bin/python
-print "I will read from serial and throw data at Helm via some yet \
-        to be agreed upon format."
+import serial
+
+#Open our connection on the usual place
+ser = serial.Serial('/dev/ttyACM0',115200, timeout=10)
+#do a hardware reset on a yet to be implemented command 
+while True:
+    print ser.readline()
