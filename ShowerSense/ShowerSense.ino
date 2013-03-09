@@ -14,12 +14,11 @@ power on init-> DATA_GATHERING-----<timer overflow>----[-> DATA_TRANSFORM]----<t
                     |                                                                  |  
                     |---------------------------------[CLEAR_STATE <-]---------<notify completes>
                     
-TODO: Add in watchdog timer initialize/cleanup and use to reset
 TODO: Put MCU to sleep while not gathering data via interrupts
 TODO: Add reporting windows for each data type, not just global reports
-TODO: Add some sort of easy to use serialization format for output data, JSON, Pickle, etc come to mind
-
 */
+
+#include "avr/wdt.h"
 
 //User Settings
 #define FLOW_SENSOR_PIN 2
@@ -82,11 +81,12 @@ ISR(TIMER1_COMPA_vect){
 void setup() {
    clear_watchdog();
    Serial.begin(115200); //initialize uart
-   Serial.println("Initializing...");
+   print_startup_message();
    attachInterrupt(0, pulses_counter, CHANGE);
    initialize_timer();
    STATE = DATA_GATHERING;
    ENABLE_INTERRUPTS;
+   Serial.println("{\"info\":\"Entering DATA_GATHERING state and running...\"}");
    START_TIMER;
 }
 
@@ -132,13 +132,13 @@ void loop()
       ENABLE_INTERRUPTS;
       break;
       
-    //currently hard coded error message for reset. Generalize later
     case RESTART:
-      Serial.println("|-------------------------------------RESETTING------------------------------------|"); 
-      Serial.println("| ILLEGAL STATE: Did not return to DATA_GATHERING state before time window elapsed |"); 
-      Serial.println("|-------------------------------------RESETTING------------------------------------|"); 
+      Serial.println("{\"error:\":\"illegal_state\",\"reason\":\"Did not return to DATA_GATHERING state before time window elapsed.\"}"); 
       reset();
-      break;
+      
+    default:
+      Serial.println("{\"error:\":\"illegal_state\",\"reason\":\"STATE register corrupted into unrecognized state.\"}"); 
+      reset();
   }
 }
 
@@ -157,19 +157,30 @@ void initialize_timer(){
   TIMSK1 |= (1 << OCIE1A); //enable timer compare interrupt
 }
 
-/*2.25 ml per pulse rougly speaking
+/*
+ Sensor:https://www.adafruit.com/products/828
+ 2.25 ml per pulse rougly speaking
  so *(9/4), div 4 of course being 2 
  bitshifts right. Not sure if compiler
- is smart enough to know that though*/
+ is smart enough to know that though
+ */
 uint16_t calculate_flow_rate(uint16_t pulses){
     return ((pulses*9)>>2); 
 }
 
+/*
+ Print which version of the firmware is running, which sensors are expected and where
+*/
+void print_startup_message(){
+   Serial.print("{\"firmware_version\":\"1.0\", \"sensors_manifest\":");
+   Serial.println("[{\"sensor_name\":\"flow_sensor\",\"sensor_url\":\"https://www.adafruit.com/products/828\",\"connection\":\"PIN2\"}]}");
+   Serial.println("{\"info\":\"Initializing data gathering subsystems...\"}");
+}
+
 void serialize_as_json_report(){
   Serial.print("{");
-    Serial.print("\"report_version\":\"1\",");
     Serial.print("\"collection_duration_seconds\":\""); Serial.print(REPORT_INTERVAL_SECONDS); Serial.print("\",");
-    Serial.print("\"data\": [");
+    Serial.print("\"data\":[");
       Serial.print("{\"data_type\":\"water_flow\",");
       Serial.print("\"units\":\"mL\",");
       Serial.print("\"value\":"); Serial.print(flow_rate); Serial.print("}");
@@ -178,15 +189,14 @@ void serialize_as_json_report(){
 }
 
 void clear_watchdog(){
-    //TODO
-}
-
-void initialize_watchdog(){
-   //TODO 
+    // Clear the reset bit
+    MCUSR &= ~_BV(WDRF);
+    // Disable the WDT
+    WDTCSR |= _BV(WDCE) | _BV(WDE); 
+    WDTCSR = 0;
 }
 
 void reset(){
-   initialize_watchdog();
-   //TODO
-   //set watchdog to explode here
+  wdt_enable(WDTO_1S); 
+  while(1);//wait for the watchdog to kill us
 }
