@@ -5,14 +5,14 @@ Application: Float on shower usage detector informing a node that signals the He
      Author: Sean Connell
      Design: A finite state machine which collects a data during a collection window, applies transforms to the data, then notifies any listeners with that data.
      
-power on init-> DATA_GATHERING-----<timer overflow>----[-> DATA_TRANSFORM]----<transform completes>  
-                    ^                     |                                            |
-                    |             (!DATA_GATHERING?)                                   |
-                    |                     |                                            |
-                    |                 [-> RESET]                             [-> NOTIFY_LISTENER]
-                    |                                                                  |
-                    |                                                                  |  
-                    |---------------------------------[CLEAR_STATE <-]---------<notify completes>
+power on init and start char-> DATA_GATHERING-<timer overflow>--[-> DATA_TRANSFORM]-<transform completes>  
+                                      ^                     |                                  |
+                                      |             (!DATA_GATHERING?)                         |
+                                      |                     |                                  |
+                                      |                 [-> RESET]                   [-> NOTIFY_LISTENER]
+                                      |                                                        |
+                                      |                                                        |  
+                                      |-------------------[CLEAR_STATE <-]---------<notify completes>
                     
 TODO: Put MCU to sleep while not gathering data via interrupts
 TODO: Add reporting windows for each data type, not just global reports
@@ -26,6 +26,14 @@ TODO: Add reporting windows for each data type, not just global reports
 #define REPORT_INTERVAL_SECONDS 5
 //Higher rates make my usb port unhappy. Might be the usb/uart converter or something else in the chain
 #define BAUD_RATE 38400
+#define START_BYTE 0x21 //! character
+
+//Logging formatting
+#define ERROR "ERROR"
+#define WARN  "WARN"
+#define DEBUG "DEBUG"
+#define INFO  "INFO"
+
 
 //Readability defines
 #define CLEAR_PENDING_INTERRUPTS EIFR = 0
@@ -54,6 +62,7 @@ volatile uint8_t   second_counter = 0;
 
 //less state critical variables
 uint16_t flow_rate = 0;
+unsigned long start_time = 0;
 
 //The data gathering window has ended and we should move on to calculating reporting values
 ISR(TIMER1_COMPA_vect){  
@@ -83,12 +92,15 @@ ISR(TIMER1_COMPA_vect){
 void setup() {
    clear_watchdog();
    Serial.begin(BAUD_RATE); //initialize uart
+   //Wait for start byte to enter cyclic state machine
+   while(Serial.read() != START_BYTE);
    print_startup_message();
    attachInterrupt(0, pulses_counter, CHANGE);
    initialize_timer();
    STATE = DATA_GATHERING;
    ENABLE_INTERRUPTS;
-   Serial.print("{\"info\":\"Entering DATA_GATHERING state and running...\"}\n");
+   log_message(INFO, "Entering DATA_GATHERING state and running...");
+   start_time = millis();
    START_TIMER;
 }
 
@@ -130,16 +142,17 @@ void loop()
       CLEAR_PENDING_INTERRUPTS;
       STATE = DATA_GATHERING;
       CLEAR_TIMER;
+      start_time = millis();
       START_TIMER;
       ENABLE_INTERRUPTS;
       break;
       
     case RESTART:
-      Serial.print("{\"error:\":\"illegal_state\",\"reason\":\"Did not return to DATA_GATHERING state before time window elapsed.\"}\n"); 
+      log_message(ERROR, "Illegal state: Did not return to DATA_GATHERING state before time window elapsed");
       reset();
       
     default:
-      Serial.print("{\"error:\":\"illegal_state\",\"reason\":\"STATE register corrupted into unrecognized state.\"}\n"); 
+      log_message(ERROR, "Illegal state: STATE register corrupted into unrecognized state");
       reset();
   }
 }
@@ -174,20 +187,28 @@ uint16_t calculate_flow_rate(uint16_t pulses){
  Print which version of the firmware is running, which sensors are expected and where
 */
 void print_startup_message(){
-   Serial.print("{\"firmware_version\":\"1.0\", \"sensors_manifest\":");
-   Serial.print("[{\"sensor_name\":\"flow_sensor\",\"sensor_url\":\"https://www.adafruit.com/products/828\",\"connection\":\"PIN2\"}]}\n");
-   Serial.print("{\"info\":\"Initializing data gathering subsystems...\"}\n");
+   Serial.print("!{\"firmware_version\":\"1.0\", \"sensors_manifest\":");
+   Serial.println("[{\"sensor_name\":\"flow_sensor\",\"sensor_url\":\"https://www.adafruit.com/products/828\",\"connection\":\"PIN2\"}]}");
+   log_message(INFO, "Initializing data gathering subsystems...");
 }
 
 void serialize_as_json_report(){
-  Serial.print("{");
-    Serial.print("\"collection_duration_seconds\":\""); Serial.print(REPORT_INTERVAL_SECONDS); Serial.print("\",");
-    Serial.print("\"data\":[");
-      Serial.print("{\"data_type\":\"water_flow\",");
-      Serial.print("\"units\":\"mL\",");
-      Serial.print("\"value\":"); Serial.print(flow_rate); Serial.print("}");
-    Serial.print("]");
-  Serial.print("}\n");
+  Serial.print("!{");
+    Serial.print("\"DATA\":[");
+      Serial.print("{");
+        Serial.print("\"period\":"); Serial.print(millis() - start_time); Serial.print(",");
+        Serial.print("\"data_type\":\"water_flow\",");
+        Serial.print("\"units\":\"mL\",");
+        Serial.print("\"value\":"); Serial.print(flow_rate);
+      Serial.print("}");
+    Serial.print("],");
+    Serial.print("\"TIME\":"); Serial.print(millis());
+  Serial.println("}");
+}
+
+void log_message(String level, String message){
+  Serial.print("!{\""); Serial.print(level); Serial.print("\":\""); Serial.print(message); Serial.print("\",");
+  Serial.print("\"TIME\":"); Serial.print(millis()); Serial.println("}");
 }
 
 void clear_watchdog(){
