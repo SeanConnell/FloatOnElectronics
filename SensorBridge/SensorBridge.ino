@@ -24,6 +24,8 @@ TODO: Add reporting windows for each data type, not just global reports
 #define FLOW_SENSOR_PIN 2
 //Be careful about setting this, it might overflow variables tracking various data if too long
 #define REPORT_INTERVAL_SECONDS 5
+//Higher rates make my usb port unhappy. Might be the usb/uart converter or something else in the chain
+#define BAUD_RATE 38400
 
 //Readability defines
 #define CLEAR_PENDING_INTERRUPTS EIFR = 0
@@ -80,13 +82,13 @@ ISR(TIMER1_COMPA_vect){
 
 void setup() {
    clear_watchdog();
-   Serial.begin(115200); //initialize uart
+   Serial.begin(BAUD_RATE); //initialize uart
    print_startup_message();
    attachInterrupt(0, pulses_counter, CHANGE);
    initialize_timer();
    STATE = DATA_GATHERING;
    ENABLE_INTERRUPTS;
-   Serial.println("{\"info\":\"Entering DATA_GATHERING state and running...\"}");
+   Serial.print("{\"info\":\"Entering DATA_GATHERING state and running...\"}\n");
    START_TIMER;
 }
 
@@ -133,11 +135,11 @@ void loop()
       break;
       
     case RESTART:
-      Serial.println("{\"error:\":\"illegal_state\",\"reason\":\"Did not return to DATA_GATHERING state before time window elapsed.\"}"); 
+      Serial.print("{\"error:\":\"illegal_state\",\"reason\":\"Did not return to DATA_GATHERING state before time window elapsed.\"}\n"); 
       reset();
       
     default:
-      Serial.println("{\"error:\":\"illegal_state\",\"reason\":\"STATE register corrupted into unrecognized state.\"}"); 
+      Serial.print("{\"error:\":\"illegal_state\",\"reason\":\"STATE register corrupted into unrecognized state.\"}\n"); 
       reset();
   }
 }
@@ -173,8 +175,8 @@ uint16_t calculate_flow_rate(uint16_t pulses){
 */
 void print_startup_message(){
    Serial.print("{\"firmware_version\":\"1.0\", \"sensors_manifest\":");
-   Serial.println("[{\"sensor_name\":\"flow_sensor\",\"sensor_url\":\"https://www.adafruit.com/products/828\",\"connection\":\"PIN2\"}]}");
-   Serial.println("{\"info\":\"Initializing data gathering subsystems...\"}");
+   Serial.print("[{\"sensor_name\":\"flow_sensor\",\"sensor_url\":\"https://www.adafruit.com/products/828\",\"connection\":\"PIN2\"}]}\n");
+   Serial.print("{\"info\":\"Initializing data gathering subsystems...\"}\n");
 }
 
 void serialize_as_json_report(){
@@ -185,7 +187,7 @@ void serialize_as_json_report(){
       Serial.print("\"units\":\"mL\",");
       Serial.print("\"value\":"); Serial.print(flow_rate); Serial.print("}");
     Serial.print("]");
-  Serial.println("}");
+  Serial.print("}\n");
 }
 
 void clear_watchdog(){
