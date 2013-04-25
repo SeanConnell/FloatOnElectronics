@@ -26,14 +26,12 @@ TODO: Add reporting windows for each data type, not just global reports
 #define REPORT_INTERVAL_SECONDS 5
 //Higher rates make my usb port unhappy. Might be the usb/uart converter or something else in the chain
 #define BAUD_RATE 38400
-#define START_BYTE 0x21 //! character
 
 //Logging formatting
 #define ERROR "ERROR"
 #define WARN  "WARN"
 #define DEBUG "DEBUG"
 #define INFO  "INFO"
-
 
 //Readability defines
 #define CLEAR_PENDING_INTERRUPTS EIFR = 0
@@ -49,12 +47,19 @@ TODO: Add reporting windows for each data type, not just global reports
 #define NOTIFY_LISTENER B00000010
 #define DATA_GATHERING  B00000100
 #define CLEAR_STATE     B00001000
+#define CHECK_MESSAGES  B00010000
 #define RESTART         B10000000
+
+//message command bytes
+#define MAX_MESSAGE_CHECKS 20 // only check 20 messages at a time to keep reporting interval consistent
+#define START_CMD 33 // ! character
+#define RESTART_CMD 38 // & character
 
 //Volatile stateful variables
 volatile uint16_t  pulse_count;
 volatile uint8_t   STATE = INITIAL;
 volatile uint8_t   second_counter = 0;
+
 //Data to be transformed register
 #define FLOW_RATE_DATA  B00000001
 #define SALINITY_DATA   B00000010
@@ -63,6 +68,10 @@ volatile uint8_t   second_counter = 0;
 //less state critical variables
 uint16_t flow_rate = 0;
 unsigned long start_time = 0;
+
+//message iteration and value variables
+uint8_t m_i;
+uint8_t msg = 0;
 
 //The data gathering window has ended and we should move on to calculating reporting values
 ISR(TIMER1_COMPA_vect){  
@@ -93,7 +102,7 @@ void setup() {
    clear_watchdog();
    Serial.begin(BAUD_RATE); //initialize uart
    //Wait for start byte to enter cyclic state machine
-   while(Serial.read() != START_BYTE);
+   while(Serial.read() != START_CMD);
    print_startup_message();
    attachInterrupt(0, pulses_counter, CHANGE);
    initialize_timer();
@@ -109,13 +118,6 @@ void loop()
   /* State machine transitions and actions that 
   aren't time critical or are too heavy to do
   in interrupts are done here. */
-  //TODO look into: implement this as a fn pointer to STATE
-  //such that each state has a function that either
-  //returns itself or next state, then the main falls
-  //out into while(1){p_state = *p_state();} as per
-  //Ben's suggestion. Might require implementing
-  //some sort of struct to represent magic interrupt
-  //based variables
   switch(STATE){
     
     //Not concerned with DATA_GATHERING 
@@ -126,10 +128,27 @@ void loop()
     //steps to transform it into output form
     case DATA_TRANSFORM:
       flow_rate = calculate_flow_rate(pulse_count);
+      STATE = CHECK_MESSAGES;
+      break;
+    
+    //Check for any buffered commands and act on them
+    case CHECK_MESSAGES:
+      for(m_i=0; m_i<MAX_MESSAGE_CHECKS; m_i++){
+         //only check for messages if we have some buffered
+         if(Serial.available() <= 0){
+           break;//done with checking because we don't have any messages 
+         }
+         switch(msg = Serial.read()){
+           case RESTART_CMD:
+             reset();
+             break;
+         }
+      }
+      msg = 0;
       STATE = NOTIFY_LISTENER;
       break;
     
-    //Notify whatever is listening by whatever method
+    //Notify whatever is listening with a json report
     case NOTIFY_LISTENER:
       serialize_as_json_report();
       STATE = CLEAR_STATE;
@@ -137,8 +156,7 @@ void loop()
     
     //reset everything to be ready for the next cycle
     case CLEAR_STATE:
-      flow_rate = 0;
-      pulse_count = 0;
+      clear_data_counters();
       CLEAR_PENDING_INTERRUPTS;
       STATE = DATA_GATHERING;
       CLEAR_TIMER;
@@ -155,6 +173,12 @@ void loop()
       log_message(ERROR, "Illegal state: STATE register corrupted into unrecognized state");
       reset();
   }
+}
+
+//All data variables go here for clearing
+void clear_data_counters(){
+  flow_rate = 0;
+  pulse_count = 0;
 }
 
 //State safe counter
