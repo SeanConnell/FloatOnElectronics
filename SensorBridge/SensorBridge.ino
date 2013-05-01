@@ -211,21 +211,20 @@ uint16_t calculate_flow_rate(uint16_t pulses){
  Print which version of the firmware is running, which sensors are expected and where
 */
 void print_startup_message(){
-   Serial.print("!{\"firmware_version\":\"1.0\", \"sensors_manifest\":");
-   Serial.println("[{\"sensor_name\":\"flow_sensor\",\"sensor_url\":\"https://www.adafruit.com/products/828\",\"connection\":\"PIN2\"}]}");
+   Serial.print("!{\"SENSORS_MANIFEST\":");
+   Serial.println("[{\"name\":\"flow_sensor\",\"url\":\"https://www.adafruit.com/products/828\",\"connection\":\"PIN2\"}]}");
    log_message(INFO, "Initializing data gathering subsystems...");
 }
 
 void serialize_as_json_report(){
   Serial.print("!{");
-    Serial.print("\"DATA\":[");
+    Serial.print("\"DATA\":");
       Serial.print("{");
         Serial.print("\"period\":"); Serial.print(millis() - start_time); Serial.print(",");
         Serial.print("\"data_type\":\"water_flow\",");
         Serial.print("\"units\":\"mL\",");
         Serial.print("\"value\":"); Serial.print(flow_rate);
-      Serial.print("}");
-    Serial.print("],");
+      Serial.print("},");
     Serial.print("\"TIME\":"); Serial.print(millis());
   Serial.println("}");
 }
