@@ -221,8 +221,8 @@ void serialize_as_json_report(){
     Serial.print("\"DATA\":");
       Serial.print("{");
         Serial.print("\"period\":"); Serial.print(millis() - start_time); Serial.print(",");
-        Serial.print("\"data_type\":\"water_flow\",");
-        Serial.print("\"units\":\"mL\",");
+        Serial.print("\"type\":\"water_flow\",");
+        Serial.print("\"unit\":\"mL\",");
         Serial.print("\"value\":"); Serial.print(flow_rate);
       Serial.print("},");
     Serial.print("\"TIME\":"); Serial.print(millis());
