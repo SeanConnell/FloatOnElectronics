@@ -104,7 +104,7 @@ void setup() {
    //Wait for start byte to enter cyclic state machine
    while(Serial.read() != START_CMD);
    print_startup_message();
-   attachInterrupt(0, pulses_counter, CHANGE);
+   attachInterrupt(0, pulses_counter, RISING);
    initialize_timer();
    STATE = DATA_GATHERING;
    ENABLE_INTERRUPTS;
