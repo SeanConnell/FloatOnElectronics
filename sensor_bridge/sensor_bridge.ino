@@ -18,6 +18,7 @@ TODO: Put MCU to sleep while not gathering data via interrupts
 TODO: Add reporting windows for each data type, not just global reports
 */
 
+#include "sensor_bridge.h"
 #include "avr/wdt.h"
 
 //User Settings
@@ -27,43 +28,12 @@ TODO: Add reporting windows for each data type, not just global reports
 //Higher rates make my usb port unhappy. Might be the usb/uart converter or something else in the chain
 #define BAUD_RATE 38400
 
-//Logging formatting
-#define ERROR "ERROR"
-#define WARN  "WARN"
-#define DEBUG "DEBUG"
-#define INFO  "INFO"
 
-//Readability defines
-#define CLEAR_PENDING_INTERRUPTS EIFR = 0
-#define ENABLE_INTERRUPTS sei()
-#define DISABLE_INTERRUPTS cli()
-#define STOP_TIMER TCCR1B &= 0B11111000 //Clear CS12,11,10 I think this is clearer than doing the shift over invert thing
-#define CLEAR_TIMER TCNT1 = 0B00000000
-#define START_TIMER TCCR1B |= (1 << CS10) | (1 << CS12); //Set prescaler to 1024, and start timer
-
-//States for the system
-#define INITIAL         B00000000
-#define DATA_TRANSFORM  B00000001
-#define NOTIFY_LISTENER B00000010
-#define DATA_GATHERING  B00000100
-#define CLEAR_STATE     B00001000
-#define CHECK_MESSAGES  B00010000
-#define RESTART         B10000000
-
-//message command bytes
-#define MAX_MESSAGE_CHECKS 20 // only check 20 messages at a time to keep reporting interval consistent
-#define START_CMD 33 // ! character
-#define RESTART_CMD 38 // & character
 
 //Volatile stateful variables
 volatile uint16_t  pulse_count;
 volatile uint8_t   STATE = INITIAL;
 volatile uint8_t   second_counter = 0;
-
-//Data to be transformed register
-#define FLOW_RATE_DATA  B00000001
-#define SALINITY_DATA   B00000010
-#define PH_DATA         B00000100
 
 //less state critical variables
 uint16_t flow_rate = 0;
