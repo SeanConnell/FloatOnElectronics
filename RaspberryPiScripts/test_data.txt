@@ -35,4 +35,4 @@
 !{"DATA":{"period":5000,"type":"water_flow","unit":"mL","value":3044},"TIME":160931}
 !{"DATA":{"period":5001,"type":"water_flow","unit":"mL","value":3539},"TIME":165938}
 !{"DATA":{"period":5000,"type":"water_flow","unit":"mL","value":0},"TIME":170942}
-!{"DATA":{"period":5000,"type":"water_flow","unit":"mL","value":0},"TIME":175946}
+!{"DATA":{"period":5000,"type":"water_flow","unit":"mL","value":0},"TIME":175946}
