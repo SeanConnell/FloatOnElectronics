@@ -3,10 +3,12 @@ import serial
 import json
 import time
 import sys
+import requests
 
 class SerialFormatError(Exception): pass
 
 def log(level, message):
+    """ wrapper for whichever logging solution I end up plugging in """
     print "[%s]\t%s" % (level, message)
 
 def send_cmd(s, cmd, n=1):
@@ -36,6 +38,7 @@ device_startup_time = 3
 start_byte = 33  # ! (ascii 33) means start of a json line
 reset_byte = 38 # & means die, as so many c programs have when they needed it and didn't have it
 WARN = "WARN"
+DEBUG = "DEBUG"
 INFO = "INFO"
 ERROR = "ERROR"
 DATA = "DATA"
@@ -45,11 +48,11 @@ def open_comm(device=ddevice, baud_rate=dbaud_rate, timeout=dtimeout):
     ser = serial.Serial(device, baud_rate, timeout=timeout)
     ser.flushOutput() # make sure we only send what we intend to
     log(INFO, "Sending %s (reset byte) to clear device state" % reset_byte)
-    send_cmd(ser, reset_byte, 1)
+    send_cmd(ser, reset_byte)
     log(INFO, "Waiting for device to start up")
     time.sleep(device_startup_time)
     log(INFO, "Sending %s (start byte) to initiate communication" % start_byte)
-    send_cmd(ser, start_byte, 1) 
+    send_cmd(ser, start_byte) 
     ser.flushOutput() # make sure we only send what we intend to
     ser.flushInput()
     return ser
@@ -98,14 +101,23 @@ def handle_ERROR_message(msg_error):
 
 def handle_DATA_message(msg_data):
     data = msg_data['DATA']
-    log(DATA, "%s: %s %s over %s ms" % (data['type'], data['value'], data['unit'], data['period']))
+    post_json_message(msg_data, "http://localhost:8080/")
+    log(DATA, "%s: %s %s over %s ms" % (data['type'], data['value'], 
+        data['unit'], data['period']))
 
 def handle_MANIFEST_message(msg_startup):
     for sensor in msg_startup['SENSORS_MANIFEST']:
-        log(INFO, "%s (%s) connected on %s" % (sensor['name'], sensor['url'], sensor['connection']))
+        log(INFO, "%s (%s) connected on %s" % (sensor['name'], sensor['url'], 
+            sensor['connection']))
 
 def dispatch(msg, handlers):
     return(handlers[_parse_message_type(msg)](msg))
+
+def post_json_message(msg, address):
+    headers = {'Content-type': 'application/json', 'Accept': 'text/plain',
+            'name':'test', 'password':'test'}
+    r = requests.post(address, data=json.dumps(msg), headers=headers)
+    log(DEBUG, "Posted %s to %s with response %s" % (msg, address, r))
 
 def _parse_message_time(msg):
     msg_type = filter(lambda x: x == 'TIME', msg.keys())
