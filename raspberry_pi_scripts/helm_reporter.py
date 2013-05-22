@@ -2,23 +2,22 @@
 import serial
 import json
 import time
-import sys
 import requests
+from cmdline_tools import log, WARN, INFO, ERROR, DEBUG, DATA
 
 class SerialFormatError(Exception): pass
+class NoHandlerError(Exception): pass
 
-def log(level, message):
-    """ wrapper for whichever logging solution I end up plugging in """
-    print "[%s]\t%s" % (level, message)
-
-def send_cmd(s, cmd, n=1):
+def _send_cmd(s, cmd, n=1):
+    """ Sends a one byte command n number of times over a serial connection """
     for x in xrange(n):
         s.write(chr(cmd))
 
-class data_source():
+class _data_source():
+    """ Class that wraps either a socket or a file that sources data """
     def __init__(self, data):
         if data is None:
-            raise Exception("Couldn't open data source %s" % data)
+            raise Exception("Couldn't use None data source")
         self.data = data
 
     def __iter__(self):
@@ -31,28 +30,21 @@ class data_source():
         else:
             return data
 
-dbaud_rate = 38400 # higher baud rates make things break on this computer at least
-dtimeout = 10
-ddevice = '/dev/ttyACM0' # probably should detect this instead of hardcode
-device_startup_time = 3
-start_byte = 33  # ! (ascii 33) means start of a json line
-reset_byte = 38 # & means die, as so many c programs have when they needed it and didn't have it
-WARN = "WARN"
-DEBUG = "DEBUG"
-INFO = "INFO"
-ERROR = "ERROR"
-DATA = "DATA"
-
-def open_comm(device=ddevice, baud_rate=dbaud_rate, timeout=dtimeout):
-    log(INFO, "Opening serial port on %s with %d baud rate and %d seconds timeout" % (device, baud_rate, timeout))
+def open_comm(device, baud_rate, timeout):
+    """ Open a serial connection with the sensor bridge """
+    start_byte = 33  # ! (ascii 33) means start of a json line
+    reset_byte = 38 # & means die, as so many c programs have when they needed it and didn't have it
+    device_startup_time = 3
+    log(INFO, "Opening serial port on %s with %d baud rate and %d seconds timeout" 
+            % (device, baud_rate, timeout))
     ser = serial.Serial(device, baud_rate, timeout=timeout)
     ser.flushOutput() # make sure we only send what we intend to
     log(INFO, "Sending %s (reset byte) to clear device state" % reset_byte)
-    send_cmd(ser, reset_byte)
+    _send_cmd(ser, reset_byte)
     log(INFO, "Waiting for device to start up")
     time.sleep(device_startup_time)
     log(INFO, "Sending %s (start byte) to initiate communication" % start_byte)
-    send_cmd(ser, start_byte) 
+    _send_cmd(ser, start_byte) 
     ser.flushOutput() # make sure we only send what we intend to
     ser.flushInput()
     return ser
@@ -61,63 +53,57 @@ def open_test_file(filename):
     log(INFO, "Running with testfile %s instead of live data" % filename)
     return open(filename)
 
-def parse_line(data):
+def _parse_line(data):
+    """ Validate line of data is in correct format and return if it is  """
     if data == None or len(data) == 0:
         log(ERROR, "Got empty data from sensor bridge. Retrying...")
         raise SerialFormatError 
     if data[0] != '!':
-        log(ERROR, "Badly formatted packet, missing ! as starting char. Dropping and Retrying...")
+        log(ERROR, "Badly formatted packet, missing ! as starting char.")
         raise SerialFormatError 
     if data[-1] != '\n':
-        log(ERROR, "Badly formatted packet, missing newline as final char. Dropping and Retrying...")
+        log(ERROR, "Badly formatted packet, missing newline as final char.")
         raise SerialFormatError 
     return data[1:]
 
-def get_data_source():
-    if len(sys.argv) == 2:
-        try:
-            return data_source(open_test_file(sys.argv[1]))
-        except Exception:
-            log(ERROR, "Couldn't open file.")
-            sys.exit(1)
-    else:
-        try:
-            return data_source(open_comm())
-        except Exception:
-            log(ERROR, "Couldn't open comm with device")
-            sys.exit(1)
-
-def handle_INFO_message(msg_info):
+def _handle_INFO_message(msg_info):
     info = msg_info['INFO']
     log(INFO, "%s" % info)
 
-def handle_WARN_message(msg_warn):
+def _handle_WARN_message(msg_warn):
     warn = msg_warn['WARN']
     log(WARN, "%s" % warn)
 
-def handle_ERROR_message(msg_error):
+def _handle_ERROR_message(msg_error):
     error = msg_error['ERROR']
     log(ERROR, "%s" % error)
 
-def handle_DATA_message(msg_data):
+def _handle_DATA_message(msg_data):
     data = msg_data['DATA']
-    post_json_message(msg_data, "http://localhost:8080/")
+    #do some msg parsing here
     log(DATA, "%s: %s %s over %s ms" % (data['type'], data['value'], 
         data['unit'], data['period']))
+    return msg_data #looks pointless for now, but will be a subset later
 
-def handle_MANIFEST_message(msg_startup):
+def _handle_MANIFEST_message(msg_startup):
     for sensor in msg_startup['SENSORS_MANIFEST']:
         log(INFO, "%s (%s) connected on %s" % (sensor['name'], sensor['url'], 
             sensor['connection']))
 
-def dispatch(msg, handlers):
-    return(handlers[_parse_message_type(msg)](msg))
+def _dispatch(msg, handlers):
+    msg_type = _parse_message_type(msg)
+    if msg_type in handlers:
+        return(handlers[msg_type](msg))
+    else:
+        raise NoHandlerError("No handler for msg of type %s" % msg_type)
 
-def post_json_message(msg, address):
+def post_json_message(data, uri):
+    json_data = json.dumps(data)
     headers = {'Content-type': 'application/json', 'Accept': 'text/plain',
             'name':'test', 'password':'test'}
-    r = requests.post(address, data=json.dumps(msg), headers=headers)
-    log(DEBUG, "Posted %s to %s with response %s" % (msg, address, r))
+    r = requests.post(uri, data=json_data, headers=headers)
+    log(DEBUG, "Posted %s to %s with response %s" % (json_data, uri, r))
+    return int(r.status_code)
 
 def _parse_message_time(msg):
     msg_type = filter(lambda x: x == 'TIME', msg.keys())
@@ -131,22 +117,38 @@ def _parse_message_type(msg):
         raise SerialFormatError("More than one message type")
     return msg_type[0]
 
-HANDLERS = {'INFO':handle_INFO_message,
-            'WARN':handle_WARN_message,
-            'ERROR':handle_ERROR_message,
-            'DATA':handle_DATA_message, 
-            'SENSORS_MANIFEST':handle_MANIFEST_message,}
 
-data_source = get_data_source()
-for data in data_source:
-    try:
-        data = parse_line(data)
-    except SerialFormatError:
-        continue
+def read_data(data_source, reporting_uri):
+    #Wrap handler functions as needed
+    #Probably a better way to do this
+    data_reporter = \
+        lambda x: post_json_message(_handle_DATA_message(x), reporting_uri)
 
-    try:
-        jdata = json.loads(data)
-    except ValueError:
-        log(ERROR, "Invalid json recieved. Retrying: %s" % data)
-        continue;
-    dispatch(jdata, HANDLERS)
+    #create handlers to dispatch to
+    HANDLERS = {
+                'INFO':_handle_INFO_message,
+                'WARN':_handle_WARN_message,
+                'ERROR':_handle_ERROR_message,
+                'DATA':data_reporter, 
+                'SENSORS_MANIFEST':_handle_MANIFEST_message}
+    recieved_data = _data_source(data_source)
+
+    for data in recieved_data:
+        try:
+            valid_data = _parse_line(data)
+        except SerialFormatError:
+            continue
+
+        try:
+            jdata = json.loads(valid_data)
+        except ValueError:
+            log(ERROR, "Invalid json recieved. Retrying: %s" % data)
+            continue;
+        try:
+            _dispatch(jdata, HANDLERS)
+        except NoHandlerError as handle_error:
+            log(ERROR, "Error in dispatch: %s" % handle_error)
+            continue;
+        except Exception as error:
+            log(ERROR, "Error in dispatch: %s" % error)
+            continue;
